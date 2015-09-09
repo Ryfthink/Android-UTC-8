@@ -1,11 +1,11 @@
 package cn.septenary.ntptime;
 
+import android.os.AsyncTask;
 import android.util.Log;
 
 import org.apache.commons.net.ntp.NTPUDPClient;
 import org.apache.commons.net.ntp.TimeInfo;
 
-import java.io.IOException;
 import java.net.InetAddress;
 import java.net.SocketException;
 import java.util.ArrayList;
@@ -15,13 +15,15 @@ import java.util.List;
 /**
  * Created by Septenary on 15-9-7.
  */
-public class NTPTime {
+public class NTPTime implements Runnable {
 
     private final List<String> sHosts;
 
-    private long mLocalTimeOffset;
+    private volatile long mLocalTimeOffset;
 
     private static final String TAG = "NTPTime";
+
+    private AsyncTask.Status mStatus = AsyncTask.Status.PENDING;
 
     {
         sHosts = new ArrayList<>(17);
@@ -42,6 +44,16 @@ public class NTPTime {
         sHosts.add("s2j.time.edu.cn");// 大连理工大学网络中心
         sHosts.add("s2k.time.edu.cn");// CERNET桂林主节点
         sHosts.add("s2m.time.edu.cn");// 北京大学
+        sHosts.add("1.cn.pool.ntp.org");
+        sHosts.add("2.cn.pool.ntp.org");
+        sHosts.add("3.cn.pool.ntp.org");
+        sHosts.add("0.cn.pool.ntp.org");
+        sHosts.add("cn.pool.ntp.org");
+        sHosts.add("tw.pool.ntp.org");
+        sHosts.add("0.tw.pool.ntp.org");
+        sHosts.add("1.tw.pool.ntp.org");
+        sHosts.add("2.tw.pool.ntp.org");
+        sHosts.add("3.tw.pool.ntp.org");
     }
 
     private static class SingletonHolder {
@@ -57,70 +69,43 @@ public class NTPTime {
         return SingletonHolder.SINGLETON;
     }
 
-    public void updteTime() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                Log.e(TAG, "start update time...  ");
-                //                Collections.shuffle(sHosts);
-                //                for (String host : sHosts) {
-                //                    Log.e(TAG, "start...  " + host);
-                //                    boolean ret = requestNTPTime(host);
-                //                    if (ret) return;
-                //                }
-                requestNTPTime2(sHosts);
-            }
-        }).start();
+    public void updteNTPTime() {
+        if (mStatus != AsyncTask.Status.RUNNING) {
+            mStatus = AsyncTask.Status.RUNNING;
+            new Thread(this).start();
+        }
     }
 
-    private boolean requestNTPTime2(List<String> hosts) {
+    @Override
+    public void run() {
+        Collections.shuffle(sHosts);
         NTPUDPClient client = new NTPUDPClient();
         client.setDefaultTimeout(5000);
         try {
             client.open();
-            for (String host : hosts) {
-                try {
-                    InetAddress hostAddr = InetAddress.getByName(host);
-                    // Log.e(TAG, "> " + hostAddr.getHostName() + "/" + hostAddr.getHostAddress());
-                    TimeInfo info = client.getTime(hostAddr);
-                    info.computeDetails();
-                    mLocalTimeOffset = info.getOffset();
-                    Log.e(TAG, "ok  " + host + "  " + mLocalTimeOffset);
-                    return true;
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    Log.e(TAG, "failed  " + host);
-                }
+            for (String host : sHosts) {
+                boolean result = requestNTPTime(client, host);
+                 if (result) break;
             }
         } catch (SocketException e) {
             e.printStackTrace();
         } finally {
             client.close();
         }
-        return false;
+        mStatus = AsyncTask.Status.FINISHED;
     }
 
-    private boolean requestNTPTime(String host) {
-        NTPUDPClient client = new NTPUDPClient();
+    private boolean requestNTPTime(NTPUDPClient client, String host) {
         try {
-            client.setSoTimeout(5000);
-            client.open();
-            try {
-                InetAddress address = InetAddress.getByName(host);
-                TimeInfo info = client.getTime(address);
-                info.computeDetails();
-                long delay = info.getDelay();
-                mLocalTimeOffset = info.getOffset();
-                Log.e(TAG, "ok  " + host + "   " + mLocalTimeOffset);
-                return true;
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        } catch (SocketException e) {
-            Log.e(TAG, "failed  " + host);
+            InetAddress hostAddr = InetAddress.getByName(host);
+            TimeInfo info = client.getTime(hostAddr);
+            info.computeDetails();
+            mLocalTimeOffset = info.getOffset();
+            Log.d(TAG, "ok  " + host + "  " + mLocalTimeOffset);
+            return true;
+        } catch (Exception e) {
             e.printStackTrace();
-        } finally {
-            client.close();
+            Log.d(TAG, "failed  " + host);
         }
         return false;
     }

@@ -5,31 +5,21 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.os.Binder;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.SystemClock;
 import android.support.v4.content.LocalBroadcastManager;
-import android.text.format.Time;
-import android.util.Log;
-
-import org.apache.commons.net.ftp.FTPCmd;
-
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.TimeZone;
 
 public class CoreService extends Service {
 
-    public static final String ACTION = "ACTION_TIME_UPDATE";
+    public static final String ACTION_TIME_TICK = "cn.septenary.ntptime.action.TIME_TICK";
+
+    public static final int CMD_NTP = 0x01;
+
+    private android.os.Handler mHandler;
 
     public CoreService() {
         mHandler = new Handler();
-    }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return new Binder();
     }
 
     @Override
@@ -44,24 +34,33 @@ public class CoreService extends Service {
     }
 
     @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
             int cmd = intent.getIntExtra("cmd", 0);
-            Log.e("AAAA", "cmd: " + cmd);
-            switch (cmd) {
-                case 0:
-                    break;
-                case 1:
-                    NTPTime.getInstance().updteTime();
-                    break;
-            }
+            dispatchCMD(cmd);
         }
         return super.onStartCommand(intent, flags, startId);
+    }
+
+    private void dispatchCMD(int command) {
+        switch (command) {
+            case CMD_NTP:
+                NTPTime.getInstance().updteNTPTime();
+                break;
+            default:
+                break;
+        }
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        mHandler.removeCallbacks(mTicker);
         unregisterReceiver(mTimeBroadcastReceiver);
     }
 
@@ -69,11 +68,18 @@ public class CoreService extends Service {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            onTimeChanged();
+            switch (action) {
+                case Intent.ACTION_TIME_TICK:
+                    // Notify clock refresh
+                    onTimeChanged();
+                    break;
+                case Intent.ACTION_TIME_CHANGED:
+                case Intent.ACTION_TIMEZONE_CHANGED:
+                    NTPTime.getInstance().updteNTPTime();
+                    break;
+            }
         }
     };
-
-    private android.os.Handler mHandler;
 
     private final Runnable mTicker = new Runnable() {
         public void run() {
@@ -85,14 +91,9 @@ public class CoreService extends Service {
     };
 
     private void onTimeChanged() {
+        Intent intent = new Intent(ACTION_TIME_TICK);
         long time = NTPTime.getInstance().getCurrentTime();
-        TimeZone timeZone = TimeZone.getDefault();
-        Calendar calendar = Calendar.getInstance(timeZone);
-        calendar.setTimeInMillis(time);
-        String formateTime = SimpleDateFormat.getDateTimeInstance().format(calendar.getTime());
-        Log.e("onTimeChanged", "" + formateTime);
-        Intent intent = new Intent(ACTION);
-        intent.putExtra("time", formateTime);
+        intent.putExtra("time", time);
         LocalBroadcastManager.getInstance(this.getApplicationContext()).sendBroadcast(intent);
     }
 }
